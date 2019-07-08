@@ -8,7 +8,25 @@ from coilutils.experiment_schedule import get_gpu_resources, allocate_gpu_resour
 from coilutils.general import create_exp_path
 from logger import printer, monitorer
 
-from . import train, validate, run_drive
+from . import train, validate, run_drive, train_VAE
+
+
+def execute_train_VAE(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=12):
+    """
+
+    Args:
+        gpu: The gpu being used for this execution.
+        module_name: The module name, if it is train, drive or evaluate
+        exp_alias: The experiment alias, file name, to be executed.
+        path: The path were the datasets are
+
+    Returns:
+
+    """
+    create_exp_path(exp_batch, exp_alias)
+    p = multiprocessing.Process(target=train_VAE.execute,
+                                args=(gpu, exp_batch, exp_alias, suppress_output, number_of_workers))
+    p.start()
 
 
 def execute_train(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=12):

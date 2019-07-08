@@ -1,6 +1,6 @@
 import argparse
 
-from coil_core import execute_train, execute_validation, execute_drive, folder_execute
+from coil_core import execute_train, execute_validation, execute_drive, folder_execute, execute_train_VAE
 from coilutils.general import create_log_folder, create_exp_path, erase_logs,\
                           erase_wrong_plotting_summaries, erase_validations
 
@@ -127,6 +127,7 @@ if __name__ == '__main__':
     if args.restart_validations:
         erase_validations(args.folder, list(args.validation_datasets))
 
+
     # The definition of parameters for driving
     drive_params = {
         "suppress_output": True,
@@ -145,7 +146,11 @@ if __name__ == '__main__':
 
         create_exp_path(args.folder, args.exp)
 
-        if args.single_process == 'train':
+        if args.single_process == 'train_VAE':
+            execute_train_VAE(gpu=args.gpus[0], exp_batch=args.folder, exp_alias=args.exp,
+                          suppress_output=False, number_of_workers=args.number_of_workers)
+
+        elif args.single_process == 'train':
             execute_train(gpu="0", exp_batch=args.folder, exp_alias=args.exp,
                           suppress_output=False, number_of_workers= args.number_of_workers)
 
