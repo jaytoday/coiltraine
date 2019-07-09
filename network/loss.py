@@ -1,6 +1,27 @@
 from . import loss_functional as LF
 import torch
+from configs import g_conf
+from torch.nn import functional as F
 
+
+def BCE_KLD(params):
+    recon_x = params['outputs']['predictions']
+    x = params['inputs']
+    mu = params['outputs']['mu']
+    logvar = params['outputs']['logvar']
+
+    # the size need to be rewrote for generalization later
+    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 3*88*200), reduction='sum')
+
+    print(BCE)
+
+    # see Appendix B from VAE paper:
+    # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
+    # https://arxiv.org/abs/1312.6114
+    # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
+    KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+
+    return BCE + KLD
 
 def l1(params):
     return branched_loss(LF.l1_loss, params)
@@ -68,15 +89,27 @@ def Loss(loss_name):
     """
     # TODO: this could be extended to some more arbitrary definition
 
-    if loss_name == 'L1':
+    if g_conf.MODEL_TYPE == 'VAE':
 
-        return l1
+        if loss_name == 'BCE+KLD':
 
-    elif loss_name == 'L2':
+            return BCE_KLD
 
-        return l2
+        else:
+            raise ValueError(" Not found Loss name")
+
 
     else:
-        raise ValueError(" Not found Loss name")
+
+        if loss_name == 'L1':
+
+            return l1
+
+        elif loss_name == 'L2':
+
+            return l2
+
+        else:
+            raise ValueError(" Not found Loss name")
 
 

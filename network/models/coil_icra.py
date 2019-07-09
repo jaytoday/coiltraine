@@ -2,6 +2,7 @@ from logger import coil_logger
 import torch.nn as nn
 import torch
 import importlib
+from torch.nn import functional as F
 
 from configs import g_conf
 from coilutils.general import command_number_to_index
@@ -161,4 +162,56 @@ class CoILICRA(nn.Module):
 
         return output_vec[branch_number[0], branch_number[1], :]
 
+
+class VAE(nn.Module):
+
+    def __init__(self, params):
+        super(VAE, self).__init__()
+        self.params = params
+
+        number_first_layer_channels = 0
+
+        for _, sizes in g_conf.SENSORS.items():
+            number_first_layer_channels += sizes[0] * g_conf.NUMBER_FRAMES_FUSION
+
+        # Get one item from the dict
+        sensor_input_shape = next(iter(g_conf.SENSORS.values()))
+        sensor_input_shape = [number_first_layer_channels, sensor_input_shape[1],
+                              sensor_input_shape[2]]
+
+        first_or_last_FC_input_shape = number_first_layer_channels * sensor_input_shape[1] * sensor_input_shape[2]
+
+        #TODO: architecture of VAE model
+
+        self.fc1 = nn.Linear(first_or_last_FC_input_shape, self.params['encoder']['fc1_out'])
+        self.fc21 = nn.Linear(self.params['encoder']['fc1_out'], self.params['encoder']['fc2_out'])
+        self.fc22 = nn.Linear(self.params['encoder']['fc1_out'], self.params['encoder']['fc2_out'])
+        self.fc3 = nn.Linear(self.params['encoder']['fc2_out'], self.params['decoder']['fc3_out'])
+        self.fc4 = nn.Linear(self.params['decoder']['fc3_out'], first_or_last_FC_input_shape)
+
+
+    def encode(self, x):
+        # the size need to be rewrote for generalization later
+        x = x.view(-1, 3*88*200)
+        h1 = F.relu(self.fc1(x))
+        return self.fc21(h1), self.fc22(h1)
+
+    def bottleneck(self, mu, logvar):
+        std = torch.exp(0.5 * logvar)
+        eps = torch.randn_like(std)
+        return mu + eps * std
+
+    def decode(self, z):
+        h3 = F.relu(self.fc3(z))
+        return torch.sigmoid(self.fc4(h3))
+
+    def forward(self, x):
+        # TODO: the forward part of VAE model
+
+        # To input image to VAE model
+        mu, logvar = self.encode(x)
+        z = self.bottleneck(mu, logvar)
+        predictions = self.decode(z)
+
+        return predictions, mu, logvar
 
