@@ -38,7 +38,7 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
         # At this point the log file with the correct naming is created.
         # You merge the yaml file with the global configuration structure.
         merge_with_yaml(os.path.join('configs', exp_batch, exp_alias + '.yaml'))
-        set_type_of_process('train')
+        set_type_of_process('train_VAE')
         # Set the process into loading status.
         coil_logger.add_message('Loading', {'GPU': gpu})
 
@@ -97,10 +97,10 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
                               preload_name=str(g_conf.NUMBER_OF_HOURS)
                                                + 'hours_' + g_conf.TRAIN_DATASET_NAME)
 
-
         print ("Loaded dataset")
 
         data_loader = select_balancing_strategy(dataset, iteration, number_of_workers)
+
         model = CoILModel(g_conf.MODEL_TYPE, g_conf.MODEL_CONFIGURATION)
         model.cuda()
         model.train()
@@ -123,13 +123,7 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
         # Loss time series window
         for data in data_loader:
 
-            #print(data.keys())                            #dict_keys(['speed_module', 'rgb_central', 'brake', 'steer', 'directions', 'throttle'])
-
-            # Basically in this mode of execution, we validate every X Steps, if it goes up 3 times,
-            # add a stop on the _logs folder that is going to be read by this process
-            if g_conf.FINISH_ON_VALIDATION_STALE is not None and \
-                    check_loss_validation_stopped(iteration, g_conf.FINISH_ON_VALIDATION_STALE):
-                break
+            #print(data.keys())                            #dict_keys(['speed_module', 'rgb', 'brake', 'steer', 'directions', 'throttle'])
 
             """
                 ####################################
@@ -141,33 +135,31 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
             if iteration % 1000 == 0:
                 adjust_learning_rate_auto(optimizer, loss_window)
 
-            # get the control commands from float_data, size = [120,1]
 
             capture_time = time.time()
-            # The output(branches) is a list of 5 branches results, each branch is with size [120,3]
+
             model.zero_grad()
-            #branches = model(torch.squeeze(data['rgb_central'].cuda()),
-            #                 dataset.extract_inputs(data).cuda())
 
-            predictions, mu, logvar = model(torch.squeeze(data['rgb_central'].cuda()))
+            #The main part for inputting rgb images to a VAE model
+            inputs_data = torch.squeeze(data['rgb'].cuda())
+            predictions, mu, logvar = model(inputs_data)
 
+
+
+            # organizing inputs and outputs for calculating the loss
             loss_function_params = {
-                'inputs': torch.squeeze(data['rgb_central']).cuda(),
+                'inputs': inputs_data,
                 'outputs': {'predictions': predictions, 'mu': mu, 'logvar': logvar}
             }
 
             loss = criterion(loss_function_params)
-
-            print(loss)
-
             loss.backward()
             optimizer.step()
+
             """
                 ####################################
                     Saving the model if necessary
                 ####################################
-            """
-
             """
             
             if is_ready_to_save(iteration):
@@ -182,8 +174,6 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
                 }
                 torch.save(state, os.path.join('_logs', exp_batch, exp_alias
                                                , 'checkpoints', str(iteration) + '.pth'))
-                                               
-            """
 
             """
                 ################################################
@@ -193,41 +183,30 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
                 #################################################
             """
 
-            """
             coil_logger.add_scalar('Loss', loss.data, iteration)
-            coil_logger.add_image('Image', torch.squeeze(data['rgb_central']), iteration)
+            coil_logger.add_image('Image', torch.squeeze(data['rgb']), iteration)
             if loss.data < best_loss:
                 best_loss = loss.data.tolist()
                 best_loss_iter = iteration
 
             # Log a random position
             position = random.randint(0, len(data) - 1)
-
-            output = model.extract_branch()
-            error = torch.abs(output - dataset.extract_targets(data).cuda())
-
             accumulated_time += time.time() - capture_time
-
+            # we calculate the sum of the error of output and input. The size need to be rewrote for generalization later
+            error = torch.sum(torch.abs(predictions - inputs_data.view(-1, 3*88*200)),1)
             coil_logger.add_message('Iterating',
                                     {'Iteration': iteration,
                                      'Loss': loss.data.tolist(),
                                      'Images/s': (iteration * g_conf.BATCH_SIZE) / accumulated_time,
-                                     'BestLoss': best_loss, 'BestLossIteration': best_loss_iter,
-                                     'Output': output[position].data.tolist(),
-                                     'GroundTruth': dataset.extract_targets(data)[
-                                         position].data.tolist(),
-                                     'Error': error[position].data.tolist(),
-                                     'Inputs': dataset.extract_inputs(data)[
-                                         position].data.tolist()},
+                                    'BestLoss': best_loss, 'BestLossIteration': best_loss_iter,
+                                     'Error': error[position].data.tolist()},
                                     iteration)
             loss_window.append(loss.data.tolist())
             coil_logger.write_on_error_csv('train', loss.data)
-            print("Train iteration: %d  Loss: %f" % (iteration, loss.data))
-            """
 
             print('Train Iteration: {} [{}/{} ({:.0f}%)] \t Loss: {:.6f}'.format(
-                iteration, iteration * g_conf.BATCH_SIZE, len(data_loader),
-                       100. * iteration / len(data_loader), loss.data))
+                iteration, iteration, g_conf.NUMBER_ITERATIONS,
+                       100. * iteration / g_conf.NUMBER_ITERATIONS, loss.data))
 
         coil_logger.add_message('Finished', {})
 
