@@ -86,6 +86,7 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
         # that you can access the positions from the root directory as a in a vector.
         full_dataset = os.path.join(os.environ["COIL_DATASET_PATH"], g_conf.TRAIN_DATASET_NAME)
 
+
         # By instantiating the augmenter we get a callable that augment images and transform them
         # into tensors.
         augmenter = Augmenter(g_conf.AUGMENTATION)

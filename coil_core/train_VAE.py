@@ -103,6 +103,8 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
         data_loader = select_balancing_strategy(dataset, iteration, number_of_workers)
         model = CoILModel(g_conf.MODEL_TYPE, g_conf.MODEL_CONFIGURATION)
         model.cuda()
+        model.train()
+
         optimizer = optim.Adam(model.parameters(), lr=g_conf.LEARNING_RATE)
 
         if checkpoint_file is not None or g_conf.PRELOAD_MODEL_ALIAS is not None:
@@ -121,11 +123,14 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
         # Loss time series window
         for data in data_loader:
 
+            #print(data.keys())                            #dict_keys(['speed_module', 'rgb_central', 'brake', 'steer', 'directions', 'throttle'])
+
             # Basically in this mode of execution, we validate every X Steps, if it goes up 3 times,
             # add a stop on the _logs folder that is going to be read by this process
             if g_conf.FINISH_ON_VALIDATION_STALE is not None and \
                     check_loss_validation_stopped(iteration, g_conf.FINISH_ON_VALIDATION_STALE):
                 break
+
             """
                 ####################################
                     Main optimization loop
@@ -139,20 +144,22 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
             # get the control commands from float_data, size = [120,1]
 
             capture_time = time.time()
-            controls = data['directions']
             # The output(branches) is a list of 5 branches results, each branch is with size [120,3]
             model.zero_grad()
-            branches = model(torch.squeeze(data['rgb_central'].cuda()),
-                             dataset.extract_inputs(data).cuda())
+            #branches = model(torch.squeeze(data['rgb_central'].cuda()),
+            #                 dataset.extract_inputs(data).cuda())
+
+            predictions, mu, logvar = model(torch.squeeze(data['rgb_central'].cuda()))
+
             loss_function_params = {
-                'branches': branches,
-                'targets': dataset.extract_targets(data).cuda(),
-                'controls': controls.cuda(),
-                'inputs': dataset.extract_inputs(data).cuda(),
-                'branch_weights': g_conf.BRANCH_LOSS_WEIGHT,
-                'variable_weights': g_conf.VARIABLE_WEIGHT
+                'inputs': torch.squeeze(data['rgb_central']).cuda(),
+                'outputs': {'predictions': predictions, 'mu': mu, 'logvar': logvar}
             }
-            loss, _ = criterion(loss_function_params)
+
+            loss = criterion(loss_function_params)
+
+            print(loss)
+
             loss.backward()
             optimizer.step()
             """
@@ -161,6 +168,8 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
                 ####################################
             """
 
+            """
+            
             if is_ready_to_save(iteration):
 
                 state = {
@@ -173,6 +182,8 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
                 }
                 torch.save(state, os.path.join('_logs', exp_batch, exp_alias
                                                , 'checkpoints', str(iteration) + '.pth'))
+                                               
+            """
 
             """
                 ################################################
@@ -180,6 +191,8 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
                     Making calculations for logging purposes.
                     These logs are monitored by the printer module.
                 #################################################
+            """
+
             """
             coil_logger.add_scalar('Loss', loss.data, iteration)
             coil_logger.add_image('Image', torch.squeeze(data['rgb_central']), iteration)
@@ -190,7 +203,7 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
             # Log a random position
             position = random.randint(0, len(data) - 1)
 
-            output = model.extract_branch(torch.stack(branches[0:4]), controls)
+            output = model.extract_branch()
             error = torch.abs(output - dataset.extract_targets(data).cuda())
 
             accumulated_time += time.time() - capture_time
@@ -209,7 +222,12 @@ def execute(gpu, exp_batch, exp_alias, suppress_output=True, number_of_workers=1
                                     iteration)
             loss_window.append(loss.data.tolist())
             coil_logger.write_on_error_csv('train', loss.data)
-            print("Iteration: %d  Loss: %f" % (iteration, loss.data))
+            print("Train iteration: %d  Loss: %f" % (iteration, loss.data))
+            """
+
+            print('Train Iteration: {} [{}/{} ({:.0f}%)] \t Loss: {:.6f}'.format(
+                iteration, iteration * g_conf.BATCH_SIZE, len(data_loader),
+                       100. * iteration / len(data_loader), loss.data))
 
         coil_logger.add_message('Finished', {})
 
