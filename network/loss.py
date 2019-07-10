@@ -5,17 +5,15 @@ from torch.nn import functional as F
 
 
 def BCE_KLD(params):
-    recon_x = params['outputs']['predictions']
+    predictions = params['outputs']['predictions']
     x = params['inputs']
     mu = params['outputs']['mu']
     logvar = params['outputs']['logvar']
+    # the targets size need to be rewrote for generalization later
+    targets = x.view(-1, 3*88*200)
+    BCE = F.binary_cross_entropy(predictions, targets, reduction='sum')
 
-    # the size need to be rewrote for generalization later
-    BCE = F.binary_cross_entropy(recon_x, x.view(-1, 3*88*200), reduction='sum')
-
-    print(BCE)
-
-    # see Appendix B from VAE paper:
+    # VAE paper:
     # Kingma and Welling. Auto-Encoding Variational Bayes. ICLR, 2014
     # https://arxiv.org/abs/1312.6114
     # 0.5 * sum(1 + log(sigma^2) - mu^2 - sigma^2)
